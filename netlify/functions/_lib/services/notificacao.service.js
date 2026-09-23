@@ -120,9 +120,10 @@ async function notificarPedidoPago(pedido) {
 
   const m = mensagemLoja(pedido), c = mensagemClientePago(pedido);
   const emailOn = await email.configurado();
+  const destinatarios = emailOn ? await email.destinatariosLoja() : [];
   await Promise.all([
     tentar(pedido.id, 'whatsapp', whatsapp.configurado(), {}, () => whatsapp.avisarLoja(parametrosWhatsApp(pedido))),
-    tentar(pedido.id, 'loja', emailOn, {}, () => email.enviar({ para: await email.destinatariosLoja(), ...m, responderPara: pedido.cliente.email })),
+    tentar(pedido.id, 'loja', emailOn, {}, () => email.enviar({ para: destinatarios, ...m, responderPara: pedido.cliente.email })),
     tentar(pedido.id, 'cliente', emailOn, {}, () => email.enviar({ para: pedido.cliente.email, ...c }))
   ]);
 }
