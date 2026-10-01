@@ -825,6 +825,7 @@
     <div class="legal">
       <span>© 2026 Linditt Boutique. Todos os direitos reservados.</span>
       <span>Enviamos para todo o Brasil</span>
+      <span><a href="#" id="link-lojista" style="color:inherit;opacity:.35;font-size:.75rem;text-decoration:none" aria-label="Área da loja">&#9679;</a></span>
     </div>
   </div>
 </footer>
@@ -926,8 +927,9 @@
 
     <!-- login -->
     <div class="adm-login" id="adm-login">
-      <p>Digite o código de acesso</p>
-      <input type="password" id="adm-pin" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="Código de acesso">
+      <p>Acesso restrito</p>
+      <input type="text" id="adm-usuario" maxlength="40" autocomplete="username" aria-label="Usuário" placeholder="Usuário">
+      <input type="password" id="adm-senha" maxlength="60" autocomplete="current-password" aria-label="Senha" placeholder="Senha" style="margin-top:.6rem">
       <p class="adm-erro" id="adm-erro" role="status"></p>
       <button class="bt bt-cheio" id="adm-entrar">Entrar</button>
     </div>
@@ -1238,15 +1240,19 @@
 
         <!-- AJUSTES -->
         <section data-painel="ajustes" hidden>
-          <h3>Código de acesso</h3>
-          <p class="adm-hint">Três toques na logo, no topo da página, abrem este painel.</p>
+          <h3>Credenciais de acesso</h3>
+          <p class="adm-hint">Altere o usuário e a senha de acesso ao painel.</p>
           <div class="adm-form" style="margin-bottom:1.8rem">
             <div>
-              <label for="adm-novopin">Novo código (4 a 8 números)</label>
-              <input type="text" id="adm-novopin" inputmode="numeric" maxlength="8">
+              <label for="adm-novo-usuario">Novo usuário</label>
+              <input type="text" id="adm-novo-usuario" maxlength="40" autocomplete="off">
+            </div>
+            <div>
+              <label for="adm-nova-senha">Nova senha (mín. 6 caracteres)</label>
+              <input type="password" id="adm-nova-senha" maxlength="60" autocomplete="new-password">
             </div>
             <div style="align-self:end">
-              <button class="bt bt-cheio" id="adm-trocarpin">Alterar código</button>
+              <button class="bt bt-cheio" id="adm-trocar-senha">Alterar credenciais</button>
             </div>
           </div>
 
@@ -1433,7 +1439,7 @@
   function voltarParaLogin() {
     if (back.hidden) return;
     login.hidden = false; painel.hidden = true;
-    $('#adm-pin').value = '';
+    $('#adm-senha').value = '';
   }
 
   function abrir() {
@@ -1442,8 +1448,8 @@
     var logado = Boolean(token());
     login.hidden = logado;
     painel.hidden = !logado;
-    if (logado) { renderTudo(); } else { $('#adm-pin').value = ''; $('#adm-erro').textContent = ''; }
-    setTimeout(function () { (logado ? $('.adm-tabs button') : $('#adm-pin')).focus(); }, 30);
+    if (logado) { renderTudo(); } else { $('#adm-senha').value = ''; $('#adm-erro').textContent = ''; }
+    setTimeout(function () { (logado ? $('.adm-tabs button') : $('#adm-usuario')).focus(); }, 30);
     document.body.style.overflow = 'hidden';
   }
   function fechar() {
@@ -1452,8 +1458,7 @@
     if (ultimoFoco) ultimoFoco.focus();
   }
 
-  // gatilho oculto: três toques na logo (a palavra "Boutique" é só a dica visual,
-  // mas a área de clique é a logo inteira, senão fica difícil acertar num texto tão pequeno)
+  // gatilho oculto: três toques na logo
   var gatilho = $('.brand'), toques = 0, relogio;
   if (gatilho) {
     gatilho.addEventListener('click', function (e) {
@@ -1463,6 +1468,11 @@
       relogio = setTimeout(function () { toques = 0; }, 2000);
       if (toques >= 3) { toques = 0; abrir(); }
     });
+  }
+  // link discreto no rodapé
+  var linkLojista = $('#link-lojista');
+  if (linkLojista) {
+    linkLojista.addEventListener('click', function (e) { e.preventDefault(); abrir(); });
   }
   // atalho de teclado, para quem prefere: Ctrl + Shift + A
   document.addEventListener('keydown', function (e) {
@@ -1474,19 +1484,22 @@
 
   /* ---------- login ---------- */
   function tentarEntrar() {
-    var pin = $('#adm-pin').value;
-    api('/auth/login', { method: 'POST', body: { pin: pin } }).then(function (dados) {
+    var usuario = $('#adm-usuario').value.trim();
+    var senha = $('#adm-senha').value;
+    if (!usuario || !senha) { $('#adm-erro').textContent = 'Preencha usuário e senha.'; return; }
+    api('/auth/login', { method: 'POST', body: { usuario: usuario, senha: senha } }).then(function (dados) {
       guardarToken(dados.token);
       login.hidden = true; painel.hidden = false;
       renderTudo();
     }).catch(function (e) {
-      $('#adm-erro').textContent = e.message || 'Código incorreto.';
-      $('#adm-pin').value = '';
-      $('#adm-pin').focus();
+      $('#adm-erro').textContent = e.message || 'Usuário ou senha incorretos.';
+      $('#adm-senha').value = '';
+      $('#adm-senha').focus();
     });
   }
   $('#adm-entrar').addEventListener('click', tentarEntrar);
-  $('#adm-pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') tentarEntrar(); });
+  $('#adm-senha').addEventListener('keydown', function (e) { if (e.key === 'Enter') tentarEntrar(); });
+  $('#adm-usuario').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('#adm-senha').focus(); });
 
   /* ---------- abas ---------- */
   Array.prototype.forEach.call(document.querySelectorAll('.adm-tabs button'), function (b) {
@@ -1730,11 +1743,13 @@
   });
 
   /* ---------- ajustes ---------- */
-  $('#adm-trocarpin').addEventListener('click', function () {
-    var novo = $('#adm-novopin').value.replace(/\D/g, '');
-    api('/auth/trocar-pin', { method: 'POST', body: { novoPin: novo } }).then(function () {
-      $('#adm-novopin').value = '';
-      $('#adm-aviso').textContent = 'Código alterado.';
+  $('#adm-trocar-senha').addEventListener('click', function () {
+    var usuario = $('#adm-novo-usuario').value.trim();
+    var novaSenha = $('#adm-nova-senha').value;
+    api('/auth/trocar-senha', { method: 'POST', body: { usuario: usuario, novaSenha: novaSenha } }).then(function () {
+      $('#adm-novo-usuario').value = '';
+      $('#adm-nova-senha').value = '';
+      $('#adm-aviso').textContent = 'Credenciais alteradas.';
     }).catch(function (e) { $('#adm-aviso').textContent = e.message; });
   });
 

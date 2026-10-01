@@ -11,15 +11,16 @@ async function saveConfig(dados) {
   if (error) throw error;
 }
 
-async function getPinHash() {
+async function getCredenciais() {
   const c = await getConfig();
-  return c.pinHash || '';
+  return { usuario: c.usuario || '', senhaHash: c.senhaHash || '' };
 }
 
-async function setPinHash(hash) {
+async function setCredenciais(usuario, senhaHash) {
   const c = await getConfig();
-  c.pinHash = hash;
+  c.usuario = usuario;
+  c.senhaHash = senhaHash;
   await saveConfig(c);
 }
 
-module.exports = { getConfig, saveConfig, getPinHash, setPinHash };
+module.exports = { getConfig, saveConfig, getCredenciais, setCredenciais };
