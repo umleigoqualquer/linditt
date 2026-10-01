@@ -5,7 +5,7 @@ const { limitar } = require('../rateLimit');
 const { aplicarCupom } = require('../services/cupom.service');
 const { getConfig } = require('../services/config.service');
 const frete = require('../services/frete.service');
-const sumup = require('../services/sumup.service');
+const mp = require('../services/mercadopago.service');
 const pedidos = require('../services/pedido.service');
 
 const limiteGeral = limitar({ janelaMs: 60 * 1000, max: 60 });
@@ -21,7 +21,7 @@ router.get('/config', async (req, res) => {
   try {
     const config = await getConfig();
     const f = config.frete || {};
-    res.json({ gratisAtivo: Boolean(f.gratisAtivo), gratisAcima: Number(f.gratisAcima) || 0, pagamentoOnline: sumup.configurado() });
+    res.json({ gratisAtivo: Boolean(f.gratisAtivo), gratisAcima: Number(f.gratisAcima) || 0, pagamentoOnline: mp.configurado() });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
@@ -102,7 +102,7 @@ function validarCliente(body) {
 
 router.post('/pedidos', limiteCriarPedido, async (req, res) => {
   const body = req.body || {};
-  if (!sumup.configurado()) {
+  if (!mp.configurado()) {
     return res.status(503).json({ semGateway: true, erro: 'O pagamento online ainda não está disponível. Você pode finalizar seu pedido pelo WhatsApp.' });
   }
 
@@ -122,7 +122,7 @@ router.post('/pedidos', limiteCriarPedido, async (req, res) => {
     const total = pedidos.r2(s.subtotalComDesconto + opcao.preco);
     if (!(total > 0)) return res.status(400).json({ erro: 'Valor do pedido inválido.' });
 
-    // Reserva atômica ANTES de falar com a SumUp
+    // Reserva atômica ANTES de falar com o Mercado Pago
     await pedidos.reservar(s.itens);
 
     const agora = new Date();
@@ -148,39 +148,36 @@ router.post('/pedidos', limiteCriarPedido, async (req, res) => {
 
     const { error: ePedido } = await supabase().from('pedidos').insert(novoPedido);
     if (ePedido) {
-      // Desfaz reserva se falhar ao salvar o pedido
       await pedidos.devolver(novoPedido.itens, 'falha ao criar pedido');
       throw ePedido;
     }
 
     const site = urlDoSite(req);
-    let checkout;
+    let preferencia;
     try {
-      checkout = await sumup.criarCheckout({
-        referencia: pedidoId,
-        valor: total,
-        moeda: 'BRL',
-        descricao: `Pedido ${pedidoId} - Linditt Boutique`,
-        redirectUrl: `${site}/?pedido=${pedidoId}&t=${token}`,
-        returnUrl: process.env.SITE_URL ? `${site}/api/pagamentos/webhook` : undefined,
-        hospedado: true
+      preferencia = await mp.criarPreferencia({
+        pedidoId,
+        itens: novoPedido.itens,
+        total,
+        frete: novoPedido.frete,
+        cliente: v.cliente,
+        backUrls: {
+          success: `${site}/?pedido=${pedidoId}&t=${token}&status=aprovado`,
+          failure: `${site}/?pedido=${pedidoId}&t=${token}&status=falhou`,
+          pending: `${site}/?pedido=${pedidoId}&t=${token}&status=pendente`
+        }
       });
     } catch (e) {
-      await pedidos.devolver(novoPedido.itens, 'falha ao criar checkout SumUp');
+      await pedidos.devolver(novoPedido.itens, 'falha ao criar preferência MP');
       await supabase().from('pedidos').update({ status: 'cancelado', alerta: e.message }).eq('id', pedidoId);
       return res.status(502).json({ erro: 'Não conseguimos iniciar o pagamento agora. Tente de novo em instantes ou finalize pelo WhatsApp.' });
     }
 
-    if (!checkout.hosted_checkout_url) {
-      await pedidos.devolver(novoPedido.itens, 'checkout sem URL');
-      await supabase().from('pedidos').update({ status: 'cancelado' }).eq('id', pedidoId);
-      return res.status(502).json({ erro: 'A SumUp não devolveu o link de pagamento.' });
-    }
-
-    const pagamento = { provedor: 'sumup', checkoutId: checkout.id, status: checkout.status, url: checkout.hosted_checkout_url };
+    const pagamentoUrl = process.env.MP_SANDBOX === '1' ? preferencia.sandbox_init_point : preferencia.init_point;
+    const pagamento = { provedor: 'mercadopago', preferenceId: preferencia.id, status: 'PENDING', url: pagamentoUrl };
     await supabase().from('pedidos').update({ pagamento }).eq('id', pedidoId);
 
-    res.status(201).json({ pedidoId, token, pagamentoUrl: checkout.hosted_checkout_url });
+    res.status(201).json({ pedidoId, token, pagamentoUrl });
   } catch (e) {
     console.error('[pedido]', e.message);
     res.status(500).json({ erro: e.message });
@@ -193,9 +190,6 @@ router.get('/pedidos/:id', async (req, res) => {
     const { data: pedido } = await supabase().from('pedidos').select('*').eq('id', req.params.id).maybeSingle();
     if (!pedido || !req.query.t || pedido.token !== String(req.query.t)) {
       return res.status(404).json({ erro: 'Pedido não encontrado.' });
-    }
-    if (pedido.status === 'aguardando_pagamento') {
-      try { await pedidos.sincronizarPagamento(pedido); } catch (e) { console.error('[pedido] sincronizar:', e.message); }
     }
     const { data: atualizado } = await supabase().from('pedidos').select('*').eq('id', req.params.id).maybeSingle();
     const p = atualizado || pedido;

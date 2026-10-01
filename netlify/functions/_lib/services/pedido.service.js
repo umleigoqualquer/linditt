@@ -1,6 +1,5 @@
 const crypto = require('crypto');
 const { supabase } = require('../supabase');
-const sumup = require('./sumup.service');
 
 const VALIDADE_MINUTOS = 40;
 const r2 = (n) => Math.round(Number(n) * 100) / 100;
@@ -94,13 +93,13 @@ async function confirmarPagamento(pedido) {
     desconto: pedido.desconto_cupom || 0,
     total: r2(pedido.subtotal - (pedido.desconto_cupom || 0)),
     frete: pedido.frete ? pedido.frete.preco : 0,
-    pagamento: 'Online (SumUp)',
+    pagamento: 'Online (Mercado Pago)',
     parcelas: 1,
     cliente: pedido.cliente ? pedido.cliente.nome : '',
     cupom: pedido.cupom,
     descontoCupom: pedido.desconto_cupom || 0,
     cancelada: false,
-    pagamentoGateway: { provedor: 'sumup', checkoutId: pedido.pagamento && pedido.pagamento.checkoutId, status: 'PAID' },
+    pagamentoGateway: { provedor: 'mercadopago', paymentId: pedido.pagamento && pedido.pagamento.paymentId, status: 'PAID' },
     origem: 'online',
     pedidoId: pedido.id
   };
@@ -144,37 +143,7 @@ async function cancelarPedido(pedidoId) {
 }
 
 async function sincronizarPagamento(pedido) {
-  const checkoutId = pedido.pagamento && pedido.pagamento.checkoutId;
-  if (!checkoutId || ['pago', 'enviado', 'entregue'].includes(pedido.status)) return pedido;
-
-  const checkout = await sumup.consultarCheckout(checkoutId);
-  if (['pago', 'enviado', 'entregue'].includes(pedido.status)) return pedido;
-  if (checkout.checkout_reference && checkout.checkout_reference !== pedido.id) return pedido;
-  if (checkout.amount != null && Math.abs(Number(checkout.amount) - pedido.total) > 0.005) {
-    console.error(`[pedido ${pedido.id}] valor do checkout (${checkout.amount}) difere do pedido (${pedido.total}); ignorado.`);
-    return pedido;
-  }
-
-  const status = String(checkout.status || '').toUpperCase();
-  const pagAtual = pedido.pagamento || {};
-  pagAtual.status = status;
-  pedido.pagamento = pagAtual;
-
-  if (status === 'PAID') {
-    await confirmarPagamento(pedido);
-    const notificacao = require('./notificacao.service');
-    Promise.resolve().then(() => notificacao.notificarPedidoPago(pedido).catch((e) => console.error('[aviso]', e.message)));
-  } else if (status === 'EXPIRED' && pedido.status === 'aguardando_pagamento') {
-    if (Array.isArray(pedido.itens)) await devolver(pedido.itens, 'checkout expirado na SumUp');
-    await supabase().from('pedidos').update({
-      status: 'expirado',
-      atualizado_em: new Date().toISOString(),
-      pagamento: pagAtual
-    }).eq('id', pedido.id);
-    pedido.status = 'expirado';
-  } else {
-    await supabase().from('pedidos').update({ pagamento: pagAtual }).eq('id', pedido.id);
-  }
+  // Sincronização agora é feita via webhook do Mercado Pago
   return pedido;
 }
 
