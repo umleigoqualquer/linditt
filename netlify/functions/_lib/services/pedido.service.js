@@ -51,13 +51,13 @@ async function resolverItens(pedidoItens) {
 // Reserva atômica via função PL/pgSQL (nunca deixa dois clientes comprarem a última peça)
 async function reservar(itens) {
   const payload = itens.map((it) => ({ produto_id: it.id, tamanho: it.tamanho, qtd: it.qtd }));
-  const { error } = await supabase().rpc('reservar_estoque', { itens: JSON.stringify(payload) });
+  const { error } = await supabase().rpc('reservar_estoque', { itens: payload });
   if (error) throw Object.assign(new Error(error.message || 'Estoque insuficiente.'), { status: 409 });
 }
 
 async function devolver(itensPedido, motivo) {
   const payload = itensPedido.map((it) => ({ produto_id: it.id, tamanho: it.tamanho, qtd: it.qtd }));
-  await supabase().rpc('devolver_estoque', { itens: JSON.stringify(payload), motivo: motivo || 'devolução' });
+  await supabase().rpc('devolver_estoque', { itens: payload, motivo: motivo || 'devolução' });
 }
 
 // Libera pedidos não pagos que passaram do prazo; chamado no início de rotas relevantes.

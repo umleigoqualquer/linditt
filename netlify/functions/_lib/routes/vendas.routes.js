@@ -55,7 +55,7 @@ router.post('/', exigirAuth, async (req, res) => {
 
     // Baixa estoque usando devolver com delta negativo via reservar_estoque
     const payload = itens.map((it) => ({ produto_id: it.id, tamanho: it.tamanho || 'Único', qtd: Number(it.qtd) }));
-    const { error: eRes } = await supabase().rpc('reservar_estoque', { itens: JSON.stringify(payload) });
+    const { error: eRes } = await supabase().rpc('reservar_estoque', { itens: payload });
     if (eRes) return res.status(409).json({ erro: eRes.message || 'Estoque insuficiente.' });
 
     const vendaId = 'v' + Date.now();
@@ -98,7 +98,7 @@ router.post('/:id/cancelar', exigirAuth, async (req, res) => {
     // Devolve estoque
     const payload = (venda.itens || []).map((it) => ({ produto_id: it.id, tamanho: it.tamanho || 'Único', qtd: it.qtd }));
     if (payload.length) {
-      await supabase().rpc('devolver_estoque', { itens: JSON.stringify(payload), motivo: 'venda cancelada' });
+      await supabase().rpc('devolver_estoque', { itens: payload, motivo: 'venda cancelada' });
     }
     await supabase().from('vendas_loja').update({ cancelada: true }).eq('id', req.params.id);
 
