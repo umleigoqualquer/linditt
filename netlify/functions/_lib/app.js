@@ -3,7 +3,29 @@ const express = require('express');
 const app = express();
 
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '10mb' }));
+
+// Cabeçalhos de segurança HTTP
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
+// CORS — aceita apenas domínio próprio e localhost
+const ORIGEM_OK = /^https:\/\/(lindittboutique\.com\.br|[^.]+--linditt\.netlify\.app)$|^http:\/\/localhost/;
+app.use((req, res, next) => {
+  const origem = req.headers.origin || '';
+  if (ORIGEM_OK.test(origem)) res.setHeader('Access-Control-Allow-Origin', origem);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
+app.use(express.json({ limit: '10mb' })); // 10 MB para upload de imagem em base64
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
